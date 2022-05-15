@@ -1,0 +1,132 @@
+---
+title: "Twitter Headline"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library("twitteR")
+library("ROAuth")
+library("base64enc")
+library(dplyr)
+library(rtweet)
+library(ggplot2)
+library(tidytext)
+library(igraph)
+library(ggraph)
+library(lubridate)
+library(plotly)
+library(ggthemes)
+library(patchwork)
+library(knitr)
+library(kableExtra)
+library(stringr)
+
+
+## 날짜 및 시간 설정
+now <- Sys.time()
+today <- format(Sys.time(), "%Y.%m.%d.")
+consumerKey <- "QdUizppfoJiUR8C2X28RsEZLo"
+
+consumerSecret <- "dvvSMMlSEkjtaTSLCSEJWHGq7hNlGHbljfLpL8Qxuf21zdPzbl"
+
+accessToken <- "835877052691660801-02VLbb4nfXOjlFCUq8uYoTLvi1mGDKd"
+
+accessTokenSecret <- "dJZgwZp27sHS5pLrB63XdeWpp8aRNiXC4oLuMLijK3JIQ"
+
+setup_twitter_oauth(consumerKey, consumerSecret, accessToken, accessTokenSecret)
+
+
+```
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+ **Issued at `r now`**
+
+```{r}
+
+# 주요 리스트 별도 지정 (관심사별로 따로 리스트를 저장 해서 활용도 가능할듯 ex: 금융리스트, 문화리스트, 게임리스트 등)
+#  엑셀 저장된게 이쁘지가 않음 
+
+t_list <- read.csv("twitter list.csv")
+
+a <- str_c(Sys.Date()-1, " 08:00:00")
+b <- str_c(Sys.Date(), " 07:59:59")
+
+Start_date <- ymd_hms(a, tz='Asia/Seoul')
+End_date <- ymd_hms(b, tz='Asia/Seoul')
+
+Stack <- NULL 
+
+for(i in t_list$주소) {
+  
+  
+  df <- userTimeline(i, n=50, excludeReplies=TRUE) %>%   
+    twListToDF() %>%
+    select(text, screenName, created) 
+  
+  
+  df$text <- gsub("http.*","",df$text)
+  
+  
+  Stack <- rbind(Stack, df)
+  
+}
+
+Stack$created <- ymd_hms(Stack$created) %>%
+  with_tz('Asia/Seoul')
+
+
+Stack <- arrange(Stack, desc(Stack$created)) 
+Stack <- subset(Stack, created> Start_date & created < End_date)
+
+Stack %>% 
+  kable(escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+Most Words 
+
+```{r}
+data("stop_words")
+mining <- Stack %>% select(text) %>% 
+  unnest_tokens(word, text)
+mining_filter <- mining %>%
+  anti_join(stop_words)
+
+mining_chart <- mining_filter %>%
+  count(word, sort = TRUE) %>%
+  top_n(10) %>%
+  mutate(word = reorder(word, n)) 
+chart1 <-  ggplot(mining_chart, aes(x = word, y = n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip() +
+  labs(              y = "count"
+                     ) +  scale_color_economist() + theme_economist()
+
+chart1 
+```
+
+Time 
+
+```{r}
+y <- nrow(Stack)
+number <- c(y:1)
+Stack_cum <- cbind(Stack, number)
+
+chart2 <- ggplot(Stack_cum, aes(x=created, y=number, label=text)) + geom_line() +  scale_color_economist() + theme_economist()
+
+chart2_new  <-  ggplotly(chart2)   
+
+chart2_new
+```
+
+#불필요한 단어들 추가 삭제하기 
