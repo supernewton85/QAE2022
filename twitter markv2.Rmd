@@ -1,0 +1,178 @@
+---
+title: "Twitter Headline"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: scroll
+---
+
+# page 1
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library("twitteR")
+library("ROAuth")
+library("base64enc")
+library(dplyr)
+library(rtweet)
+library(ggplot2)
+library(tidytext)
+library(igraph)
+library(ggraph)
+library(lubridate)
+library(plotly)
+library(ggthemes)
+library(patchwork)
+library(knitr)
+library(kableExtra)
+library(stringr)
+library(httr)
+library(DT)
+library(rvest)
+library(gtrendsR)
+## 날짜 및 시간 설정
+now <- Sys.time()
+today <- format(Sys.time(), "%Y.%m.%d.")
+consumerKey <- "QdUizppfoJiUR8C2X28RsEZLo"
+
+consumerSecret <- "dvvSMMlSEkjtaTSLCSEJWHGq7hNlGHbljfLpL8Qxuf21zdPzbl"
+
+accessToken <- "835877052691660801-02VLbb4nfXOjlFCUq8uYoTLvi1mGDKd"
+
+accessTokenSecret <- "dJZgwZp27sHS5pLrB63XdeWpp8aRNiXC4oLuMLijK3JIQ"
+
+setup_twitter_oauth(consumerKey, consumerSecret, accessToken, accessTokenSecret)
+
+t_list <- read.csv("twitter list.csv")
+
+a <- str_c(Sys.Date()-1, " 06:00:00")
+b <- str_c(Sys.Date()+1, " 05:59:59")
+
+Start_date <- ymd_hms(a, tz='Asia/Seoul')
+End_date <- ymd_hms(b, tz='Asia/Seoul')
+
+Stack <- NULL 
+
+for(i in t_list$주소) {
+  
+  
+  df <- userTimeline(i, n=50, excludeReplies=TRUE) %>%   
+    twListToDF() %>%
+    select(text, screenName, created) 
+  
+  
+  df$text <- gsub("http.*","",df$text)
+  
+  
+  Stack <- rbind(Stack, df)
+  
+}
+
+Stack$created <- ymd_hms(Stack$created) %>%
+  with_tz('Asia/Seoul')
+
+
+Stack <- arrange(Stack, desc(Stack$created)) 
+Stack <- subset(Stack, created> Start_date & created < End_date)
+
+data("stop_words")
+word <- c("u.s","actual","forecast","piqsuite")
+lexicon <-  rep("custom", times=length(word))
+
+# Create a dataframe from the two vectors above
+mystopwords <- data.frame(word, lexicon)
+names(mystopwords) <- c("word", "lexicon")
+
+# Add the dataframe to stop_words df that exists in the library stopwords
+stop_words <-  dplyr::bind_rows(stop_words, mystopwords)
+View(stop_words)
+
+mining <- Stack %>% select(text) %>% 
+  unnest_tokens(word, text)
+mining_filter <- mining %>%
+  anti_join(stop_words)
+
+mining_chart <- mining_filter %>%
+  count(word, sort = TRUE) %>%
+  top_n(10) %>%
+  mutate(word = reorder(word, n)) 
+chart1 <-  ggplot(mining_chart, aes(x = word, y = n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip() +
+  labs(              y = "count"
+                     ) +  scale_color_economist() + theme_economist() +
+  ggtitle('Most Words in Twitter Headline')
+
+
+y <- nrow(Stack)
+number <- c(y:1)
+Stack_cum <- cbind(Stack, number)
+
+chart2 <- ggplot(Stack_cum, aes(x=created, y=number, label=text)) + geom_line() +  scale_color_economist() + theme_economist() + options(repr.plot.width = 1, repr.plot.height = 0.75) 
+
+chart2_new  <-  ggplotly(chart2)  
+
+
+gg <-top_n(mining_chart,1) 
+ggg <- gg[-2]
+
+search_terms <- c(ggg)
+output_results <- gtrends(keyword = search_terms,
+                          time = "today 3-m") 
+
+chart3 <- output_results %>% 
+  .$interest_over_time %>% 
+  ggplot(aes(x = as.Date(date) , y = as.numeric(hits))) +
+  geom_area(fill = "lightblue", alpha = 0.8) +
+  geom_line(color = "lightblue") +
+  scale_x_date(date_labels = "%b %d",
+               breaks = "1 week") +
+  labs(
+    x = "date",
+    y = "hits",
+    title = "Most word trend"
+  ) +
+  scale_color_economist() + theme_economist()
+
+
+
+
+```
+
+**Issued at `r now`**
+
+## row {data-width="650"}
+
+```{r}
+
+
+Stack %>% 
+     datatable(filter = "top", options = list(scrollY = '800px',pageLength = 20, searchHighlight = TRUE,autoWidth = TRUE), colnames = c('', 'TEXT', '', 'Time'))
+```
+
+# Page 2 {data-orientation="rows"}
+
+## row {data-width="650"}
+
+```{r}
+
+
+chart1 
+```
+
+```{r}
+ 
+
+chart2_new
+```
+## column {data-width="650"}
+```{r}
+ 
+
+chart3
+```
+
+
+
+
